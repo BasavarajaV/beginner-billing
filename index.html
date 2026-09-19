@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice Generator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2213%22 font-size=%2214%22>🧾</text></svg>">
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<!-- Toolbar -->
+<nav class="navbar navbar-dark app-toolbar no-print">
+  <div class="container-fluid flex-wrap gap-2">
+    <span class="navbar-brand mb-0">
+      <i class="bi bi-receipt"></i> Invoice Generator
+    </span>
+    <div class="d-flex flex-wrap gap-2">
+      <button id="btn-new" class="btn btn-sm btn-outline-light" title="Start a new blank invoice">
+        <i class="bi bi-file-earmark-plus"></i> New
+      </button>
+      <button id="btn-save" class="btn btn-sm btn-outline-light" title="Save this invoice">
+        <i class="bi bi-save"></i> Save
+      </button>
+      <button class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#modal-invoices">
+        <i class="bi bi-folder2-open"></i> Saved Invoices
+      </button>
+      <button class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#modal-profiles">
+        <i class="bi bi-building"></i> Companies
+      </button>
+      <span class="vr d-none d-md-inline"></span>
+      <button id="btn-export-pdf" class="btn btn-sm btn-danger" title="Download as PDF">
+        <i class="bi bi-file-earmark-pdf"></i> Export PDF
+      </button>
+      <button id="btn-export-excel" class="btn btn-sm btn-success" title="Download as Excel">
+        <i class="bi bi-file-earmark-excel"></i> Export Excel
+      </button>
+      <button id="btn-print" class="btn btn-sm btn-secondary" title="Print">
+        <i class="bi bi-printer"></i> Print
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- Invoice sheet -->
+<div id="invoice-sheet" class="invoice-sheet">
+
+  <!-- Header: seller info + document title -->
+  <div class="row">
+    <div class="col-7">
+      <textarea rows="1" class="plain-input seller-name-input" data-path="seller.name" placeholder="Company Name"></textarea>
+      <textarea rows="2" class="plain-input" data-path="seller.address" placeholder="Address, City, State - PIN"></textarea>
+      <input type="text" class="plain-input" data-path="seller.phone" placeholder="Phone number">
+      <input type="text" class="plain-input" data-path="seller.email" placeholder="Email address">
+    </div>
+    <div class="col-5 d-flex align-items-start justify-content-end">
+      <input type="text" class="plain-input invoice-title-input" data-path="title" placeholder="TAX INVOICE">
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Invoice number / date -->
+  <div class="meta-row d-flex align-items-center mb-1">
+    <label for="inv-number">Invoice Number</label>
+    <input id="inv-number" type="text" class="plain-input" data-path="invoiceNumber" style="max-width: 260px;">
+  </div>
+  <div class="meta-row d-flex align-items-center">
+    <label for="inv-date">Invoice Date</label>
+    <input id="inv-date" type="text" class="plain-input" data-path="invoiceDate" style="max-width: 260px;" placeholder="DD/MM/YYYY">
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Shipping / Billing addresses -->
+  <div class="row g-3 mb-3">
+    <div class="col-6">
+      <div class="addr-box">
+        <div class="addr-label">Shipping Address:</div>
+        <textarea rows="5" class="plain-input" data-path="shippingAddress" placeholder="Shipping address"></textarea>
+      </div>
+    </div>
+    <div class="col-6">
+      <div class="addr-box">
+        <div class="addr-label">Billing Address:</div>
+        <textarea rows="5" class="plain-input" data-path="billingAddress" placeholder="Billing address"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Items table -->
+  <div class="table-responsive">
+    <table class="table items-table mb-1">
+      <thead>
+        <tr>
+          <th class="sl-no">Sl No</th>
+          <th>Description</th>
+          <th style="width: 5.5rem;">Qty</th>
+          <th style="width: 5.5rem;">Unit</th>
+          <th style="width: 6.5rem;">Rate</th>
+          <th style="width: 7.5rem;">Amount</th>
+          <th class="no-export" style="width: 3rem;"></th>
+        </tr>
+      </thead>
+      <tbody id="items-body"></tbody>
+    </table>
+  </div>
+  <div class="add-item-row no-print no-export">
+    <button id="btn-add-item" type="button" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-plus-lg"></i> Add Item
+    </button>
+  </div>
+
+  <!-- Totals -->
+  <div class="row g-3">
+    <div class="col-7">
+      <div class="words-box">
+        <div class="fw-bold mb-1">Total In Words:</div>
+        <div id="total-words-value"></div>
+      </div>
+    </div>
+    <div class="col-5">
+      <div class="totals-box">
+        <div class="totals-row">
+          <span>SubTotal</span>
+          <span id="subtotal-value">0.00</span>
+        </div>
+        <div class="totals-row">
+          <span>Tax <input type="number" step="0.01" min="0" class="tax-percent-input" data-path="taxPercent" value="0">%</span>
+          <span id="tax-amount-value">0.00</span>
+        </div>
+        <div class="totals-row total-final">
+          <span>Total</span>
+          <span id="total-value">0.00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Bank details (left) / Signature (right) -->
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="bank-box h-100">
+        <div class="fw-bold mb-2">Bank Details:</div>
+        <div class="bank-field"><label>Name</label><input type="text" class="plain-input" data-path="bank.name" placeholder="Enter account holder name here"></div>
+        <div class="bank-field"><label>Bank</label><input type="text" class="plain-input" data-path="bank.bank" placeholder="Enter bank name and branch here"></div>
+        <div class="bank-field"><label>Account No.</label><input type="text" class="plain-input" data-path="bank.accountNo" placeholder="Enter account number here"></div>
+        <div class="bank-field"><label>IFSC Code</label><input type="text" class="plain-input" data-path="bank.ifsc" placeholder="Enter IFSC code here"></div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="signature-box h-100">
+        <div class="signature-space"></div>
+        <input type="text" class="plain-input signature-name-input text-center" data-path="signatoryName" placeholder="Authorized Signatory Name">
+        <div class="signature-caption">Authorized Signature</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Saved Invoices modal -->
+<div class="modal fade no-print" id="modal-invoices" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-folder2-open"></i> Saved Invoices</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="invoices-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Company profiles modal -->
+<div class="modal fade no-print" id="modal-profiles" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-building"></i> Companies</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">Save the current seller and bank details as a reusable company profile, so you can quickly switch between different businesses.</p>
+        <div class="input-group mb-3">
+          <input type="text" id="profile-name-input" class="form-control" placeholder="Company profile name">
+          <button id="btn-save-profile" class="btn btn-primary">Save Current As New</button>
+        </div>
+        <hr>
+        <div id="profiles-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/storage.js"></script>
+<script src="assets/js/export.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,306 @@
+:root {
+  --paper-bg: #ffffff;
+  --ink: #1a1a1a;
+  --muted: #6c757d;
+  --line: #333333;
+}
+
+body {
+  background: #eef1f4;
+  color: var(--ink);
+}
+
+.app-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+  background: #212529;
+}
+
+.app-toolbar .navbar-brand {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* --- Invoice sheet (A4-like paper) --- */
+.invoice-sheet {
+  max-width: 900px;
+  margin: 1.5rem auto 3rem;
+  background: var(--paper-bg);
+  border: 1px solid var(--line);
+  padding: 1.75rem;
+  font-family: "Times New Roman", Times, serif;
+  color: var(--ink);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+.invoice-sheet h1,
+.invoice-sheet h2 {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.seller-name-input {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.invoice-title-input {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  text-align: right;
+  letter-spacing: 1px;
+}
+
+.section-divider {
+  border-top: 1px solid var(--line);
+  margin: 0.75rem 0;
+}
+
+.addr-box {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.75rem;
+  min-height: 130px;
+}
+
+.addr-box .addr-label {
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.4rem;
+}
+
+/* Inputs styled to look like plain text until focused */
+.plain-input {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 1px 2px;
+  font: inherit;
+  color: inherit;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+.plain-input:focus {
+  outline: 1px dashed #0d6efd;
+  background: #eef6ff;
+}
+
+span.plain-input,
+div.plain-input {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.meta-row label {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.85rem;
+  color: var(--muted);
+  min-width: 120px;
+}
+
+.meta-row .plain-input {
+  font-weight: 700;
+}
+
+/* --- Items table --- */
+.items-table {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.85rem;
+}
+
+.items-table th,
+.items-table td {
+  border: 1px solid var(--line);
+  vertical-align: middle;
+  padding: 0.35rem 0.4rem;
+}
+
+.items-table thead th {
+  background: #e9ecef;
+  font-weight: 700;
+  text-align: center;
+}
+
+.items-table .sl-no {
+  width: 3rem;
+}
+
+.items-table .amount-cell {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.items-table textarea.item-desc {
+  min-height: 1.6em;
+}
+
+/* --- Totals / summary --- */
+.totals-box {
+  border: 1px solid var(--line);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.totals-box .totals-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.totals-box .totals-row:last-child {
+  border-bottom: none;
+}
+
+.totals-box .totals-row.total-final {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.tax-percent-input {
+  width: 4.5rem;
+  display: inline-block;
+  text-align: right;
+  border: 1px solid #adb5bd;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font: inherit;
+}
+
+.words-box {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.75rem;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.85rem;
+  min-height: 100%;
+}
+
+.bank-box {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.75rem;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.85rem;
+}
+
+.bank-box .bank-field {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.bank-box .bank-field label {
+  min-width: 90px;
+  color: var(--muted);
+}
+
+/* --- Signature block --- */
+.signature-box {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.75rem;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+}
+
+.signature-space {
+  flex: 1 1 auto;
+  min-height: 2.5rem;
+}
+
+.signature-name-input {
+  border-top: 1px solid var(--line) !important;
+  margin: 0 1.5rem;
+  width: auto !important;
+  padding-top: 0.3rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.signature-caption {
+  text-align: center;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+/* --- Add item row button --- */
+.add-item-row {
+  margin: 0.5rem 0 1.25rem;
+}
+
+/* --- Modal list rows --- */
+.list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.25rem;
+  border-bottom: 1px solid #e9ecef;
+}
+.list-row:last-child {
+  border-bottom: none;
+}
+.list-row-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+/* --- Toast --- */
+#toast-container {
+  position: fixed;
+  top: 4.5rem;
+  right: 1rem;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.app-toast {
+  background: #212529;
+  color: #fff;
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.app-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* --- Off-screen PDF export clone --- */
+.pdf-export-clone {
+  box-shadow: none !important;
+  margin: 0 !important;
+}
+
+/* --- Print styles --- */
+@media print {
+  body {
+    background: #fff;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .invoice-sheet {
+    box-shadow: none;
+    border: none;
+    margin: 0;
+    max-width: 100%;
+  }
+  .plain-input:focus {
+    outline: none;
+    background: transparent;
+  }
+}
