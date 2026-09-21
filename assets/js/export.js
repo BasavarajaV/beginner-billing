@@ -1,4 +1,113 @@
-/* PDF export (html2pdf.js) and Excel export (ExcelJS) for the invoice. */
+/* PDF export (html2canvas + jsPDF, one page captured at a time) and Excel
+   export (ExcelJS) for the invoice. */
+
+// A4 page geometry (mm), and the CSS px equivalent at 96 px/inch used to lay
+// out the off-screen render at the same width the PDF's content area will
+// have, so measurements taken on it (see splitInvoiceIntoPdfPages) match.
+const PDF_MARGIN_MM = 8;
+const PDF_PAGE_MM = { width: 210, height: 297 }; // A4 portrait
+const MM_TO_PX = 96 / 25.4;
+const PDF_CONTENT_WIDTH_MM = PDF_PAGE_MM.width - PDF_MARGIN_MM * 2;
+const PDF_CONTENT_WIDTH_PX = Math.floor(PDF_CONTENT_WIDTH_MM * MM_TO_PX);
+const PDF_CONTENT_HEIGHT_PX = Math.floor((PDF_PAGE_MM.height - PDF_MARGIN_MM * 2) * MM_TO_PX);
+// Leave a little slack below the true page height for estimation error in
+// splitInvoiceIntoPdfPages (fonts/layout can shift a pixel or two between
+// the measurement pass and the real capture of the same content).
+const PDF_PAGE_HEIGHT_BUDGET_PX = PDF_CONTENT_HEIGHT_PX - 20;
+const ITEMS_PER_PDF_PAGE = 30;
+
+// A table's <thead> only repeats automatically on every printed page when a
+// browser's native print engine paginates it (window.print()) - not when a
+// tool rasterizes the page into one tall image and slices it into
+// page-sized chunks, which is how this export used to work (via html2pdf.js,
+// which bundles html2canvas + jsPDF behind a single `.save()` call). That
+// slicing approach turned out to have a second, independent problem: on any
+// page where content was pushed down to avoid a row splitting mid-page
+// (html2pdf's `pagebreak.avoid`), a faint phantom line could appear in the
+// blank space left behind - reproducible even with plain html2pdf and no
+// custom pagination, so it's an artifact of slicing one giant canvas into
+// pages, not something fixable by rearranging the DOM going into it.
+//
+// splitInvoiceIntoPdfPages sidesteps both problems by not rendering a single
+// tall image at all: it decides the page breaks itself (measuring real row
+// heights on the mounted, correctly-A4-width clone) and rebuilds the invoice
+// as one independent DOM tree per PDF page, each with its own real <thead>.
+// exportInvoiceToPdf then captures each page with its own html2canvas call
+// and places it on its own jsPDF page - there is no multi-page canvas to
+// slice, so there's nothing for a row (or a border) to straddle.
+function splitInvoiceIntoPdfPages(clone) {
+  const table = clone.querySelector('.items-table');
+  const tableWrapper = clone.querySelector('.table-responsive');
+  const thead = table && table.querySelector('thead');
+  const tbody = table && table.querySelector('tbody');
+  if (!table || !tableWrapper || !thead || !tbody) return [clone];
+
+  const rows = Array.from(tbody.children);
+  const cloneTop = clone.getBoundingClientRect().top;
+  const letterheadHeight = tableWrapper.getBoundingClientRect().top - cloneTop;
+  const headerHeight = thead.getBoundingClientRect().height;
+  const rowHeights = rows.map((row) => row.getBoundingClientRect().height);
+
+  // Walk the rows, starting a new group (new page) whenever the next row
+  // would exceed the remaining budget for the current page, or the current
+  // page has already reached the soft 30-item target. There's no attempt to
+  // exactly fill every page - a group can end up smaller than 30 if rows
+  // are tall (e.g. wrapped descriptions), which is fine.
+  let budget = PDF_PAGE_HEIGHT_BUDGET_PX - letterheadHeight - headerHeight;
+  let count = 0;
+  const breaks = [];
+  rowHeights.forEach((height, i) => {
+    if (i > 0 && (count >= ITEMS_PER_PDF_PAGE || height > budget)) {
+      breaks.push(i);
+      budget = PDF_PAGE_HEIGHT_BUDGET_PX - headerHeight;
+      count = 0;
+    }
+    budget -= height;
+    count += 1;
+  });
+  const groups = [];
+  let start = 0;
+  breaks.forEach((idx) => {
+    groups.push(rows.slice(start, idx));
+    start = idx;
+  });
+  groups.push(rows.slice(start));
+
+  // Everything before/after the items table (seller header, addresses,
+  // totals, bank details...) only belongs on the first/last PDF page
+  // respectively - collect it here so it can be reattached below.
+  const before = [];
+  const after = [];
+  let seenWrapper = false;
+  Array.from(clone.children).forEach((child) => {
+    if (child === tableWrapper) {
+      seenWrapper = true;
+      return;
+    }
+    (seenWrapper ? after : before).push(child);
+  });
+
+  return groups.map((groupRows, g) => {
+    const pageRoot = document.createElement('div');
+    pageRoot.className = clone.className;
+    if (g === 0) before.forEach((el) => pageRoot.appendChild(el));
+
+    const newWrapper = document.createElement('div');
+    newWrapper.className = tableWrapper.className;
+    const newTable = document.createElement('table');
+    newTable.className = table.className;
+    newTable.appendChild(thead.cloneNode(true));
+    const newTbody = document.createElement('tbody');
+    // appendChild moves each <tr> out of the original tbody automatically.
+    groupRows.forEach((row) => newTbody.appendChild(row));
+    newTable.appendChild(newTbody);
+    newWrapper.appendChild(newTable);
+    pageRoot.appendChild(newWrapper);
+
+    if (g === groups.length - 1) after.forEach((el) => pageRoot.appendChild(el));
+    return pageRoot;
+  });
+}
 
 async function exportInvoiceToPdf(sheetEl, state) {
   const clone = sheetEl.cloneNode(true);
@@ -12,7 +121,7 @@ async function exportInvoiceToPdf(sheetEl, state) {
     const tag = el.tagName === 'TEXTAREA' ? 'div' : 'span';
     const replacement = document.createElement(tag);
     replacement.className = el.className;
-    replacement.textContent = el.value && el.value.length ? el.value : ' ';
+    replacement.textContent = el.value && el.value.length ? el.value : ' ';
     el.replaceWith(replacement);
   });
 
@@ -20,19 +129,24 @@ async function exportInvoiceToPdf(sheetEl, state) {
   wrapper.style.position = 'absolute';
   wrapper.style.top = '0';
   wrapper.style.left = '0';
-  wrapper.style.width = '794px';
+  // Match the PDF's content width (A4 width minus its page margins) rather
+  // than the full page width, so splitInvoiceIntoPdfPages's measurements
+  // and every page's real capture see the same text wrapping.
+  wrapper.style.width = `${PDF_CONTENT_WIDTH_PX}px`;
   wrapper.style.zIndex = '-9999';
   wrapper.style.pointerEvents = 'none';
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
-  // html2pdf's internal render overlay uses position:fixed, which
+  const pages = splitInvoiceIntoPdfPages(clone);
+
   // html2canvas mis-captures whenever the page itself is scrolled (a real
   // scenario here, since the form is taller than the viewport and users
-  // naturally scroll down while filling it in). Force an instant scroll to
-  // the top and wait a couple of paint frames so any in-flight smooth-scroll
-  // (e.g. from a focused field) has fully settled before capture starts,
-  // then restore the user's scroll position afterwards.
+  // naturally scroll down while filling it in) - it has previously produced
+  // a blank gap at the top of a capture for exactly this reason. Force an
+  // instant scroll to the top and wait for any in-flight smooth-scroll
+  // (e.g. from a focused field) to fully settle before capturing, then
+  // restore the user's scroll position afterwards.
   const originalScrollX = window.scrollX;
   const originalScrollY = window.scrollY;
   const originalScrollBehavior = document.documentElement.style.scrollBehavior;
@@ -41,20 +155,37 @@ async function exportInvoiceToPdf(sheetEl, state) {
   }
   document.documentElement.style.scrollBehavior = 'auto';
   window.scrollTo(0, 0);
-  await new Promise((resolve) => setTimeout(resolve, 250));
-
-  const filename = `Invoice-${(state.invoiceNumber || 'draft').replace(/[^\w-]+/g, '_')}.pdf`;
-  const opt = {
-    margin: 8,
-    filename,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['css', 'legacy'] },
-  };
+  // A field's native focus scroll-into-view (e.g. from clicking "Add Item",
+  // which focuses the new row's textarea) can still be mid-animation here.
+  // Disabling smooth scrolling and calling scrollTo(0, 0) doesn't cancel an
+  // already-running animation, so it can keep nudging the page away from
+  // (0, 0) for a while after this point, even past a fixed wait - on a long
+  // invoice with many items this window was wide enough to still be
+  // scrolled when html2canvas captured, reproducing the blank-gap bug this
+  // function otherwise guards against. Re-assert the reset until the
+  // position actually stays put instead of guessing a fixed delay.
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (window.scrollX === 0 && window.scrollY === 0) break;
+    window.scrollTo(0, 0);
+  }
 
   try {
-    await html2pdf().set(opt).from(clone).save();
+    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    for (let i = 0; i < pages.length; i++) {
+      wrapper.innerHTML = '';
+      wrapper.appendChild(pages[i]);
+      // Let layout settle after swapping in this page's content before
+      // capturing it.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const canvas = await html2canvas(pages[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+      const imgHeightMm = (canvas.height / canvas.width) * PDF_CONTENT_WIDTH_MM;
+      if (i > 0) pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', PDF_MARGIN_MM, PDF_MARGIN_MM, PDF_CONTENT_WIDTH_MM, imgHeightMm);
+    }
+    const filename = `Invoice-${(state.invoiceNumber || 'draft').replace(/[^\w-]+/g, '_')}.pdf`;
+    pdf.save(filename);
     showToast('PDF downloaded');
   } finally {
     wrapper.remove();

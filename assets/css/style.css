@@ -118,13 +118,24 @@ div.plain-input {
 .items-table td {
   border: 1px solid var(--line);
   vertical-align: middle;
-  padding: 0.35rem 0.4rem;
+  padding: 0.2rem 0.4rem;
 }
 
 .items-table thead th {
   background: #e9ecef;
   font-weight: 700;
   text-align: center;
+}
+
+/* Keep a single line item from splitting across a print page boundary
+   (window.print(); `break-inside` is the modern name, `page-break-inside` is
+   kept for older engines). PDF export doesn't rely on this - it builds a
+   separate <table> per PDF page up front instead (see
+   splitInvoiceIntoPdfPages in export.js), so no row can ever straddle a page
+   there in the first place. */
+.items-table tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .items-table .sl-no {
@@ -136,8 +147,12 @@ div.plain-input {
   white-space: nowrap;
 }
 
+.items-table .plain-input {
+  line-height: 1.2;
+}
+
 .items-table textarea.item-desc {
-  min-height: 1.6em;
+  min-height: 1.3em;
 }
 
 /* --- Totals / summary --- */
