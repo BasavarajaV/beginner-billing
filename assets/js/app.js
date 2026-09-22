@@ -40,6 +40,25 @@ function renderFieldsFromState() {
   });
 }
 
+const ITEM_ROW_COLUMN_COUNT = 8; // drag handle, Sl No, description, qty, unit, rate, amount, delete
+
+// A thin row sitting between two item rows (and before the first / after
+// the last) with a "+" that inserts a new item at exactly that position -
+// see input/add_button_enhacement.md. `no-export no-print` keep it out of
+// the PDF/print output the same way the drag handle and delete button are;
+// `data-insert-at` (not `data-index`) is what lets the drag-and-drop
+// handlers above tell it apart from a real item row.
+function insertGapRowTemplate(insertAt) {
+  return `
+    <tr class="insert-gap-row no-export no-print" data-insert-at="${insertAt}">
+      <td colspan="${ITEM_ROW_COLUMN_COUNT}">
+        <button type="button" class="insert-gap-btn" tabindex="-1" title="Insert an item here">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </td>
+    </tr>`;
+}
+
 function itemRowTemplate(item, index) {
   const amount = (Number(item.qty) || 0) * (Number(item.rate) || 0);
   return `
@@ -71,8 +90,17 @@ function itemRowTemplate(item, index) {
 }
 
 function renderItems() {
-  itemsBody.innerHTML = state.items.map(itemRowTemplate).join('');
+  const rowsHtml = [insertGapRowTemplate(0)];
+  state.items.forEach((item, index) => {
+    rowsHtml.push(itemRowTemplate(item, index));
+    rowsHtml.push(insertGapRowTemplate(index + 1));
+  });
+  itemsBody.innerHTML = rowsHtml.join('');
   autoGrowAll();
+}
+
+function insertItemAt(index) {
+  state.items.splice(index, 0, defaultItem());
 }
 
 function computeTotals() {
@@ -156,6 +184,18 @@ itemsBody.addEventListener('click', (e) => {
   scheduleAutosave();
 });
 
+itemsBody.addEventListener('click', (e) => {
+  const insertBtn = e.target.closest('.insert-gap-btn');
+  if (!insertBtn) return;
+  const insertAt = Number(insertBtn.closest('.insert-gap-row').dataset.insertAt);
+  insertItemAt(insertAt);
+  renderItems();
+  renderTotals();
+  scheduleAutosave();
+  const newRow = itemsBody.querySelector(`tr[data-index="${insertAt}"]`);
+  if (newRow) newRow.querySelector('.item-desc').focus();
+});
+
 // --- Reordering items by drag-and-drop ---------------------------------------
 // The whole <tr> is the thing that gets dragged (so drop-target detection and
 // the drag ghost cover the full row), but it only becomes `draggable` while
@@ -190,7 +230,9 @@ function clearDropTargetMarkers() {
 }
 
 itemsBody.addEventListener('dragover', (e) => {
-  const row = e.target.closest('tr');
+  // `tr[data-index]` (not just 'tr') so the thin insert-item gap rows -
+  // which have no `data-index` - are never mistaken for a drop target.
+  const row = e.target.closest('tr[data-index]');
   if (!row) return;
   e.preventDefault(); // required to allow this row to be a drop target
   e.dataTransfer.dropEffect = 'move';
@@ -201,7 +243,7 @@ itemsBody.addEventListener('dragover', (e) => {
 });
 
 itemsBody.addEventListener('drop', (e) => {
-  const targetRow = e.target.closest('tr');
+  const targetRow = e.target.closest('tr[data-index]');
   if (!targetRow) return;
   e.preventDefault();
   clearDropTargetMarkers();
@@ -237,8 +279,10 @@ document.getElementById('btn-add-item').addEventListener('click', () => {
   state.items.push(defaultItem());
   renderItems();
   scheduleAutosave();
-  const rows = itemsBody.querySelectorAll('tr');
-  const lastRow = rows[rows.length - 1];
+  // `tr[data-index]` (not just 'tr') to skip past the trailing insert-gap
+  // row that now follows the last real item row.
+  const itemRows = itemsBody.querySelectorAll('tr[data-index]');
+  const lastRow = itemRows[itemRows.length - 1];
   lastRow.querySelector('.item-desc').focus();
 });
 
