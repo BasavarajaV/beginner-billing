@@ -5,6 +5,7 @@ const STORAGE_KEYS = {
   DRAFT: 'invoiceApp.draft',
   INVOICES: 'invoiceApp.invoices',
   PROFILES: 'invoiceApp.profiles',
+  LAST_IMPORT_FILE: 'invoiceApp.lastImportFile',
 };
 
 function readJSON(key, fallback) {
@@ -60,5 +61,15 @@ const Storage = {
   deleteProfile(id) {
     const profiles = Storage.getProfiles().filter((p) => p.id !== id);
     writeJSON(STORAGE_KEYS.PROFILES, profiles);
+  },
+
+  // Browsers never expose a real filesystem path for a user-picked file
+  // (only its name), so this is the closest equivalent - kept in case it's
+  // useful to show the user which file they last imported from.
+  saveLastImportFile({ name, size }) {
+    writeJSON(STORAGE_KEYS.LAST_IMPORT_FILE, { name, size, importedAt: Date.now() });
+  },
+  getLastImportFile() {
+    return readJSON(STORAGE_KEYS.LAST_IMPORT_FILE, null);
   },
 };

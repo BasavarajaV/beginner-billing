@@ -44,6 +44,9 @@ function itemRowTemplate(item, index) {
   const amount = (Number(item.qty) || 0) * (Number(item.rate) || 0);
   return `
     <tr data-index="${index}">
+      <td class="text-center no-export no-print drag-handle-cell">
+        <i class="bi bi-grip-vertical drag-handle" title="Drag to reorder"></i>
+      </td>
       <td class="text-center sl-no">${index + 1}</td>
       <td>
         <textarea rows="1" class="plain-input item-desc" data-path="items.${index}.description"
@@ -59,7 +62,7 @@ function itemRowTemplate(item, index) {
         <input type="number" step="0.01" class="plain-input text-end" data-path="items.${index}.rate" value="${item.rate}">
       </td>
       <td class="text-end amount-cell" id="amt-${index}">${formatMoney(amount)}</td>
-      <td class="text-center no-export">
+      <td class="text-center no-export no-print">
         <button type="button" class="btn btn-sm btn-outline-danger btn-del-row" title="Remove item">
           <i class="bi bi-trash3"></i>
         </button>
@@ -151,6 +154,83 @@ itemsBody.addEventListener('click', (e) => {
   renderItems();
   renderTotals();
   scheduleAutosave();
+});
+
+// --- Reordering items by drag-and-drop ---------------------------------------
+// The whole <tr> is the thing that gets dragged (so drop-target detection and
+// the drag ghost cover the full row), but it only becomes `draggable` while
+// the grip handle is held - otherwise dragging text inside a description
+// textarea, or a click-drag anywhere else in the row, would start a row drag
+// by accident. `mouseup` (a plain click, no drag) resets it back off; a real
+// drag's own `dragend` also resets it, so this is just a harmless no-op then.
+itemsBody.addEventListener('mousedown', (e) => {
+  const handle = e.target.closest('.drag-handle');
+  if (!handle) return;
+  handle.closest('tr').draggable = true;
+});
+
+itemsBody.addEventListener('mouseup', () => {
+  itemsBody.querySelectorAll('tr[draggable="true"]').forEach((row) => {
+    row.draggable = false;
+  });
+});
+
+itemsBody.addEventListener('dragstart', (e) => {
+  const row = e.target.closest('tr');
+  if (!row || !row.draggable) return;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', row.dataset.index);
+  row.classList.add('dragging');
+});
+
+function clearDropTargetMarkers() {
+  itemsBody.querySelectorAll('.drop-target-before, .drop-target-after').forEach((row) => {
+    row.classList.remove('drop-target-before', 'drop-target-after');
+  });
+}
+
+itemsBody.addEventListener('dragover', (e) => {
+  const row = e.target.closest('tr');
+  if (!row) return;
+  e.preventDefault(); // required to allow this row to be a drop target
+  e.dataTransfer.dropEffect = 'move';
+  clearDropTargetMarkers();
+  const rect = row.getBoundingClientRect();
+  const before = e.clientY < rect.top + rect.height / 2;
+  row.classList.add(before ? 'drop-target-before' : 'drop-target-after');
+});
+
+itemsBody.addEventListener('drop', (e) => {
+  const targetRow = e.target.closest('tr');
+  if (!targetRow) return;
+  e.preventDefault();
+  clearDropTargetMarkers();
+
+  const fromIndex = Number(e.dataTransfer.getData('text/plain'));
+  const targetIndex = Number(targetRow.dataset.index);
+  const rect = targetRow.getBoundingClientRect();
+  const before = e.clientY < rect.top + rect.height / 2;
+
+  // `insertAt` is expressed in the array as it stands right now (before the
+  // dragged item is removed); removing an earlier item shifts every later
+  // index down by one, so that has to be corrected for before re-inserting.
+  let insertAt = before ? targetIndex : targetIndex + 1;
+  if (fromIndex < insertAt) insertAt -= 1;
+
+  if (insertAt !== fromIndex) {
+    const [moved] = state.items.splice(fromIndex, 1);
+    state.items.splice(insertAt, 0, moved);
+    renderItems();
+    renderTotals();
+    scheduleAutosave();
+  }
+});
+
+itemsBody.addEventListener('dragend', (e) => {
+  const row = e.target.closest('tr');
+  if (row) row.draggable = false;
+  itemsBody.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+  clearDropTargetMarkers();
 });
 
 document.getElementById('btn-add-item').addEventListener('click', () => {
@@ -316,6 +396,157 @@ document.getElementById('profiles-list').addEventListener('click', (e) => {
       row.remove();
     }
   }
+});
+
+// --- Bulk import (CSV/Excel) modal ---------------------------------------------
+const importModalEl = document.getElementById('modal-import');
+const importDropzone = document.getElementById('import-dropzone');
+const importFileInput = document.getElementById('import-file-input');
+const importErrorEl = document.getElementById('import-error');
+const importProgressBar = document.getElementById('import-progress-bar');
+const importProgressLabel = document.getElementById('import-progress-label');
+const importSummaryEl = document.getElementById('import-summary');
+const importConfirmBtn = document.getElementById('btn-import-confirm');
+
+// Parsed items wait here, not in `state`, until the user confirms via the
+// review step's "Import" button - Cancel (or closing the modal) just drops
+// this and nothing about the invoice changes.
+let pendingImportItems = null;
+
+function setImportStep(step) {
+  document.getElementById('import-step-choose').classList.toggle('d-none', step !== 'choose');
+  document.getElementById('import-step-progress').classList.toggle('d-none', step !== 'progress');
+  document.getElementById('import-step-review').classList.toggle('d-none', step !== 'review');
+  document.getElementById('import-review-footer').classList.toggle('d-none', step !== 'review');
+}
+
+function resetImportModal() {
+  pendingImportItems = null;
+  importErrorEl.classList.add('d-none');
+  importFileInput.value = '';
+  setImportStep('choose');
+}
+
+function setImportProgress(fraction, label) {
+  const pct = Math.round(fraction * 100);
+  importProgressBar.style.width = `${pct}%`;
+  importProgressBar.textContent = `${pct}%`;
+  importProgressBar.setAttribute('aria-valuenow', String(pct));
+  if (label) importProgressLabel.textContent = label;
+}
+
+// True when the invoice is still just the single blank row every new
+// invoice starts with - used to default the append/replace choice below to
+// "Replace" in that case, since there's nothing meaningful to append to.
+function hasOnlyUntouchedDefaultItem() {
+  const [only] = state.items;
+  return state.items.length === 1
+    && !only.description
+    && Number(only.qty) === 1
+    && (only.unit || 'Nos') === 'Nos'
+    && Number(only.rate) === 0;
+}
+
+async function handleImportFile(file) {
+  importErrorEl.classList.add('d-none');
+
+  // Fail fast on the size/type checks before showing the progress step, so
+  // an obviously-bad file doesn't flash a loader it'll never need.
+  if (file.size > IMPORT_MAX_FILE_BYTES) {
+    importErrorEl.textContent = `File is too large (${(file.size / (1024 * 1024)).toFixed(2)} MB). The limit is 2 MB.`;
+    importErrorEl.classList.remove('d-none');
+    return;
+  }
+  if (!/\.(csv|xlsx)$/i.test(file.name)) {
+    importErrorEl.textContent = 'Please choose a .csv or .xlsx file.';
+    importErrorEl.classList.remove('d-none');
+    return;
+  }
+
+  setImportStep('progress');
+  setImportProgress(0, 'Reading file…');
+
+  try {
+    const result = await importItemsFromFile(file, { onProgress: setImportProgress });
+    Storage.saveLastImportFile(file);
+    pendingImportItems = result.items;
+
+    const modeChoiceEl = document.getElementById('import-mode-choice');
+    if (result.items.length === 0) {
+      importSummaryEl.innerHTML = `
+        <p class="mb-0">No valid items were found in <strong>${file.name}</strong>
+        (${result.ignoredCount} row(s) ignored).</p>`;
+      importConfirmBtn.disabled = true;
+      modeChoiceEl.classList.add('d-none');
+    } else {
+      importSummaryEl.innerHTML = `
+        <p class="mb-1"><strong>${result.items.length}</strong> item(s) ready to import from <strong>${file.name}</strong>.</p>
+        ${result.ignoredCount > 0
+          ? `<p class="text-muted small mb-0">${result.ignoredCount} row(s) were ignored (missing description, or a non-numeric Qty/Rate).</p>`
+          : ''}`;
+      importConfirmBtn.disabled = false;
+      modeChoiceEl.classList.remove('d-none');
+      // Default to "Replace" for a still-blank invoice (nothing meaningful
+      // to append to), "Append" otherwise - either way, the user can switch
+      // it before confirming.
+      const defaultMode = hasOnlyUntouchedDefaultItem() ? 'replace' : 'append';
+      document.getElementById(`import-mode-${defaultMode}`).checked = true;
+    }
+    setImportStep('review');
+  } catch (err) {
+    console.error(err);
+    importErrorEl.textContent = err.message || 'Could not import that file.';
+    importErrorEl.classList.remove('d-none');
+    setImportStep('choose');
+  }
+}
+
+importModalEl.addEventListener('show.bs.modal', resetImportModal);
+importModalEl.addEventListener('hidden.bs.modal', () => {
+  pendingImportItems = null;
+});
+
+document.getElementById('btn-import-browse').addEventListener('click', (e) => {
+  e.stopPropagation(); // the dropzone itself is also click-to-browse; avoid opening the picker twice
+  importFileInput.click();
+});
+importDropzone.addEventListener('click', () => importFileInput.click());
+importFileInput.addEventListener('change', () => {
+  if (importFileInput.files[0]) handleImportFile(importFileInput.files[0]);
+});
+
+['dragenter', 'dragover'].forEach((evt) => {
+  importDropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    importDropzone.classList.add('dragover');
+  });
+});
+['dragleave', 'drop'].forEach((evt) => {
+  importDropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    importDropzone.classList.remove('dragover');
+  });
+});
+importDropzone.addEventListener('drop', (e) => {
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) handleImportFile(file);
+});
+
+document.getElementById('btn-import-cancel-review').addEventListener('click', resetImportModal);
+
+importConfirmBtn.addEventListener('click', () => {
+  if (!pendingImportItems || pendingImportItems.length === 0) return;
+
+  const modeInput = document.querySelector('input[name="import-mode"]:checked');
+  const mode = modeInput ? modeInput.value : 'append';
+  state.items = mode === 'replace' ? pendingImportItems : state.items.concat(pendingImportItems);
+
+  renderItems();
+  renderTotals();
+  scheduleAutosave();
+  showToast(`${pendingImportItems.length} item(s) imported`);
+  pendingImportItems = null;
+  bootstrap.Modal.getInstance(importModalEl).hide();
 });
 
 // --- Init ---------------------------------------------------------------------
