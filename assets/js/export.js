@@ -127,13 +127,22 @@ async function exportInvoiceToPdf(sheetEl, state) {
 
   const wrapper = document.createElement('div');
   wrapper.style.position = 'absolute';
-  wrapper.style.top = '0';
-  wrapper.style.left = '0';
+  // Genuinely off-canvas, not just "behind everything" via z-index: a
+  // negative z-index only wins the stacking order against whatever else
+  // happens to be painted over the same screen area - at top:0/left:0 that
+  // area is the page itself, so it only stayed invisible before because the
+  // old single html2pdf.js call was fast enough not to be noticed. This
+  // export now captures one page at a time in a loop (see below), each a
+  // real html2canvas call with actual wall-clock duration, so that flash
+  // became visible behind the table. Placing the container far outside the
+  // document bounds instead means there's nothing for it to visually
+  // overlap, regardless of stacking order.
+  wrapper.style.top = '-10000px';
+  wrapper.style.left = '-10000px';
   // Match the PDF's content width (A4 width minus its page margins) rather
   // than the full page width, so splitInvoiceIntoPdfPages's measurements
   // and every page's real capture see the same text wrapping.
   wrapper.style.width = `${PDF_CONTENT_WIDTH_PX}px`;
-  wrapper.style.zIndex = '-9999';
   wrapper.style.pointerEvents = 'none';
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
